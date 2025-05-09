@@ -1,0 +1,1 @@
+This page contains public examples of common bioinformatic tools used for analysis of microglia using RNA-seq, single cell RNA-seq and ATAC-seq. The code here is a framework for your own analyses of data paired with publicly availble GEO repositories. 
