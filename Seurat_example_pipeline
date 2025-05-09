@@ -1,0 +1,62 @@
+library(Seurat)
+library(SeuratObject)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(harmony)
+library(clustree)
+library(sctransform)
+library(glmGamPoi)
+
+counts<-Read10X(data.dir = "/path/to/file/outs/agg/count")
+seurat_sct <- CreateSeuratObject(counts, project="ProjectID")
+
+seurat_sct[["percent.mt"]] <- PercentageFeatureSet(seurat_sct, pattern = "^MT-")
+seurat_sct[["percent.rb"]] <- PercentageFeatureSet(seurat_sct, pattern = "^RP[SL]")
+
+summary(seurat_sct@meta.data$percent.mt)
+summary(seurat_sct@meta.data$percent.rb)
+summary(seurat_sct@meta.data$nFeature_RNA)
+summary(seurat_sct@meta.data$nCount_RNA)
+
+seurat_sct <- subset(seurat_sct, subset = nFeature_RNA < 200 & nFeature_RNA < 7000 & percent.mt < 5 & percent.rb < 12)
+
+SampleID <- read.csv("barcodes_sct.csv", header = T)
+Samples <- SampleID
+View(SampleID)
+Samples$Condition <- ifelse(Samples$SampleID %in% c("Sample1", "Sample2"), 'Condition1', 'Condition2' )
+rownames(Samples) <- Samples[,1]
+Samples[,1] <- NULL
+
+seurat_sct <- AddMetaData(seurat_sct,Samples)
+
+seurat_sct <- SCTransform(seurat_sct, method = "glmGamPoi", vars.to.regress = "percent.mt", verbose = FALSE, conserve.memory = TRUE)
+seurat_sct <- FindVariableFeatures(seurat_sct, nfeatures = 2000)
+#Plotting those variable features 
+top_features <- head(VariableFeatures(seurat_sct), 20)
+plot1 <- VariableFeaturePlot(seurat_sct)
+plot2 <- LabelPoints(plot = plot1, points = top_features, repel = TRUE)
+plot1|plot2
+
+seurat_sct <- ScaleData(seurat_sct)
+seurat_sct <- ScaleData(seurat_sct,vars.to.regress = "percent.mt")
+
+seurat_sct<- RunPCA(seurat_sct, features = VariableFeatures(object = seurat_sct))
+print(seurat_sct[["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(seurat_sct, dims=1:2, reduction="pca")
+DimPlot(seurat_sct, reduction = "pca")
+ElbowPlot(seurat_sct)
+
+seurat_sct<-FindNeighbors(seurat_sct, dims=1:15)
+seurat_sct<-FindClusters(seurat_sct, resolution=0.8)
+seurat_sct<-FindClusters(seurat_sct, resolution=0.7)
+seurat_sct<-FindClusters(seurat_sct, resolution=0.6)
+seurat_sct<-FindClusters(seurat_sct, resolution=0.5)
+seurat_sct<-FindClusters(seurat_sct, resolution=0.4)
+seurat_sct<-FindClusters(seurat_sct, resolution=0.3)
+seurat_sct<-FindClusters(seurat_sct, resolution=0.2)
+clustree(seurat_sct)
+
+seurat_sct<-FindClusters(seurat_sct, resolution=0.3)
+seurat_sct<-RunUMAP(seurat_sct, dims=1:30)
+DimPlot(seurat_sct, reduction="umap", label=T)

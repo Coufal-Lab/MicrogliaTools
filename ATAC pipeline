@@ -1,0 +1,45 @@
+#Step 1: Distal analysis with genomic background using default settings of PeakPipe.R 
+
+#Example code
+#peakPipe.R path/to/the/sample/tag_directories/All_lines.txt -g hg38 -a atac -t ATAC
+
+#Step 2: Separation into proximal and distal regions with genomic background 
+
+#Proximal and distal refer to distance from the TSS. Usually for proximal, we use within 500bp of the TSS. Distal is more loose, and typically 3000bp away from the TSS is used. When you run peakPipe.R, it automatically does the distal peaks
+
+#To get the proximal only peaks, you need to run:
+
+peakDiff.R sampledefinitionfile.txt -t 500
+
+#This will provide you with the differential peaks that are proximal to the TSS. Files that you will get:
+
+#Say I have two groups A and B, after I run peakDiff.R:
+
+#A.act.peak -> peaks that are differentially expressed in A compared to B
+#B.act.peak -> peaks that are differentially expressed in B compared to A
+#allPeaks.peak -> All of the peaks that are in A and B
+
+#Step 3: GO analysis on the proximal hits
+
+#If you want a GO analysis on the proximal diff peaks of group A, I would take A.act.peak and in R, extract out the genes associated with those peaks using my allRawTags.txt (this is obtained in the peakQuan folder when you run peakPipe. You need the allRawTags.txt because the A.act.peak file does not have any of that information. 
+
+#Step 4: Motif analysis using peaks as background
+
+#Again going with group A vs B: When you run peakPipe.R, the motif findings that the pipeline returns is based on looking at enrichment in your differential peaks in group A (vs B) over random genomic background. What Chris wants you to do is to run the motif analysis using your differential peaks over a specific set of peaks (in your case in using the nonsignificant peaks in AvsB).
+
+#To do this, you basically need to use R to get and use the allPeaks.peak file and take out all of the peaks from A.act.peak and B.act.peak, and that way you get the nonsignificant peaks in the comparison. Let’s call this file nonsig.peak
+
+#Then you need to run Homer’s findMotifsGenome.pl
+
+findMotifsGenome.pl <peak/BED file> <genome> <output directory> -bg <background file>
+
+#As an example, if we were looking at motifs that are enriched in A (in our AvsB comparison):
+
+#findMotifsGenome.pl A.act.peak hg38 <path to output directory> -bg nonsig.peak
+
+#-bg is the option that indicates that you will be using a specific set of peaks as your background. If you want random genomic background then don’t use the -bg option
+
+#From here, after the motif analysis is done (will usually take 1-2 hrs if not longer, depending on how busy the server is), then you’ll have files in your output directory:
+
+#Known.html <- is all known motifs
+#Homer.html <- is all de novo motifs (their names are something like this, but you should only have 2 html files).

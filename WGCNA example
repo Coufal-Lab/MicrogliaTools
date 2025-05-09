@@ -1,0 +1,246 @@
+#This is example code for a specific project, sft and clustering will be different based on your input matrix. The variability and power of the input dataset matter and must have appropriate QC measures performed before this step. 
+
+library(flashClust)
+Library(WGCNA)
+options(stringsAsFactors=FALSE)
+enableWGCNAThreads()
+ALLOW_WGCNA_THREADS=12
+
+Final_WGCNA<-read.csv("VSD.csv", header	=T)
+dim(Final_WGCNA)
+names(Final_WGCNA)
+datExpr=as.data.frame(t(Final_WGCNA[,-1]))
+names(datExpr)=Final_WGCNA[,1]
+rownames(datExpr)=names(Final_WGCNA)[,-1]
+dim (datExpr)
+rownames(Final_WGCNA)=Final_WGCNA[,1]
+Final_WGCNA=Final_WGCNA[,-1]
+dim(Final_WGCNA)
+names(Final_WGCNA)
+iac=cor(Final_WGCNA,use='p')
+meaniac=apply(iac,2,mean)
+sdcorr=sd(meaniac)
+numbersd=(meaniac-mean(meaniac))/sdcorr
+
+###plot sample tree to identify outliers
+library(cluster)
+cluster=hclust(as.dist(1-iac),method='average')
+
+pdf('sampletree.pdf')
+plot(cluster,cex=1,labels=names)
+dev.off()
+
+##picking power for matrix adjancency/TOM calculations
+powers = c(c(1:10), seq(from = 12, to=30, by=2))
+sft = pickSoftThreshold(datExpr, powerVector = powers, networkType = "signed", verbose = 5)
+
+
+pdf('softpower_filtered.pdf')
+par(mfrow = c(1,2));
+cex1 = 0.9;
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n", main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], labels=powers,cex=cex1,col="red");
+plot(sft$fitIndices[,1], sft$fitIndices[,5], xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n", main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+dev.off()
+
+##make adjacency matrix/TOM matrix, print sft for suggested value
+print(sft)
+softPower=28
+adjacency = adjacency(datExpr, power = softPower, type = "signed");
+TOM = TOMsimilarity(adjacency);
+#..connectivity..
+#..matrix multiplication (system BLAS)..
+#..normalization..
+#..done.
+dissTOM = 1-TOM
+ 
+geneTree = flashClust(as.dist(dissTOM), method = "average");
+  
+
+#minimum Module size will change depending on the dataset so try multiple values here to see what makes the most sense for your input data.
+minModuleSize =150;
+detectCutHeight=0.99
+geneTree$height <- round(geneTree$height, 6)
+dynamicMods = cutreeDynamic(dendro = geneTree, cutHeight=NULL,method="tree", deepSplit = T, minClusterSize = minModuleSize);
+table(dynamicMods)
+dynamicColors = labels2colors(dynamicMods)
+table(dynamicColors)
+
+  
+pdf('Dendro_setcutheight.pdf')
+plotDendroAndColors(geneTree, dynamicColors, "Dynamic Tree Cut",rowText=dynamicColors, dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05, main = "Gene dendrogram and module colors")
+dev.off()
+
+##read in quantiative trait file
+nGenes = ncol(datExpr);                                                                         
+nSamples = nrow(datExpr);                                                                               
+MEs0 = moduleEigengenes(datExpr, dynamicColors)$eigengenes                                                                              
+MEs = orderMEs(MEs0)
+moduleColors = dynamicColors
+trait=read.csv('traits.csv')
+dim(trait)
+names(trait)
+trait = trait[,-1]
+dim(trait)
+names(trait)
+sampleTree2 = flashClust(dist(datExpr), method = "average")
+
+traitColors = numbers2colors(trait, signed = FALSE);
+pdf('Sampletraitheatmap_setcutheight.pdf')
+plotDendroAndColors(sampleTree2, traitColors, groupLabels = names(trait), main = "Sample dendrogram and trait heatmap")
+dev.off()
+
+moduleTraitCor = cor(MEs, trait, use = "p");                                                                            
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", sep = "");                                                                              
+dim(textMatrix) = dim(moduleTraitCor)                                                                           
+par(mar = c(6, 8.5, 3, 3));
+pdf('moduletraitrelation_setcutheight.pdf',width=5.5, height=8)
+labeledHeatmap(Matrix = moduleTraitCor, xLabels = names(trait), yLabels = names(MEs), ySymbols = names(MEs), colorLabels = FALSE, colors = bluepaleturquoiseRed(50), textMatrix = textMatrix, setStdMargins = FALSE, cex.text = 0.6,cex.axis=0.9, cex.lab=0.5,zlim = c(-1,1), main = paste("Module-trait relationships")) 
+dev.off()
+
+##Generate a geneinfo file
+## Define variable containing the column of datTrait, for this example it is based on Genotype. This is a knockout versus control study. So my binary trait of interest is knockout. But for you it could be consumption or preference or any other classifier.
+KO = as.data.frame(trait$KO);
+names(KO) = "KO"
+### names (colors) of the modules
+modNames = substring(names(MEs), 3)
+### Module membership
+geneModuleMembership = as.data.frame(cor(datExpr,MEs,use="p"))
+MMPvalue=as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership),nSamples))
+names(geneModuleMembership) = paste("MM", modNames, sep="")
+names(MMPvalue) = paste("p.MM", modNames, sep="")
+geneTraitSignificance = as.data.frame(cor(datExpr,KO,use="p"))
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance),nSamples))
+names(geneTraitSignificance) = paste("GS.", names(KO), sep="")
+names(GSPvalue) = paste("p.GS.", names(KO), sep="")
+
+######annotate
+library(biomaRt)
+library(dplyr)
+probes = names(datExpr)
+ensembl <- useMart(biomart="ensembl", dataset="mmusculus_gene_ensembl",host="www.ensembl.org")
+annot<-getBM(c("ensembl_gene_id_version","ensembl_gene_id", "mgi_symbol", "chromosome_name", "strand", "start_position", "end_position","gene_biotype"),values= names(datExpr), mart=ensembl)
+### Match probes in the data set to the probe IDs in the annotation file
+probes2annot = match(probes, annot$ensembl_gene_id_version)
+sum(is.na(probes2annot))
+
+### Create the starting data frame
+geneInfo0 = data.frame(geneSymbol = colnames(datExpr),
+moduleColor = moduleColors,
+geneTraitSignificance,
+GSPvalue)
+
+### Order modules by their significance for weight
+modOrder = order(-abs(cor(MEs, KO, use = "p")));
+
+### Add module membership information in the chosen order
+for (mod in 1:ncol(geneModuleMembership))
+{
+oldNames = names(geneInfo0)
+geneInfo0 = data.frame(geneInfo0, geneModuleMembership[, modOrder[mod]],
+MMPvalue[, modOrder[mod]]);
+names(geneInfo0) = c(oldNames,
+paste("MM.", modNames[modOrder[mod]], sep=""),
+paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+
+### Order the genes in the geneInfo variable
+### first by module color, then by geneTraitSignificance
+geneOrder = order(geneInfo0$moduleColor, -abs(geneInfo0$GS.KO));
+geneInfo = geneInfo0[geneOrder, ]
+
+######This data frame can be written into a text-format spreadsheet, for example by
+write.csv(geneInfo, file = "geneInfo_KO_setcutheight.csv", row.names = FALSE)
+  
+  
+ ### High GS and MM for modules of interest. Repeat for each module you want to investigate
+module = "paleturquoise"
+column = match(module, modNames);
+moduleGenes = moduleColors==module;
+pdf('paleturquoise_KO.pdf')
+sizeGrWindow(7, 7);
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+abs(geneTraitSignificance[moduleGenes, 1]),
+xlab = paste("Module Membership in", module, "module"),
+ylab = "Gene significance ",
+main = paste("Module membership vs. gene significance"),
+cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module,type='p',lwd=4)            
+abline(h=0.8,v=0.7, col = "paleturquoise")
+dev.off()
+
+##Module Eigengene plot	
+trait=read.csv('traits_bygroup.csv')																		
+
+
+##paleturquoise														
+pdf("MEpaleturquoise.pdf")																		
+which.module="paleturquoise"																		
+ME=MEs[, paste("ME",which.module, sep="")]																		
+par(mfrow=c(2,1), mar=c(1,5.5,4,2))																		
+plotMat(t(scale(datExpr[,moduleColors==which.module ]) ),nrgcols=30,rlabels=F,clabels=trait$Group,rcols=which.module,main=NULL, cex.main=2,font.lab=1)																		
+par(mar=c(5, 4.2, 0, 0.7))																		
+barplot(ME, col=which.module, main="", cex.main=2,ylab="eigengene expression",xlab="sample",font.lab=2)																		
+dev.off()																		
+
+###MEBoxplot																																
+tgroup=trait$Group																		
+pdf('MEboxplot_paleturquoise_POLG.pdf')																		
+verboseBoxplot(as.numeric(MEs[,"MEpaleturquoise"]), tgroup, col=as.character("paleturquoise"),main="paleturquoise ME expr", las=2, xlab="KO", ylab="",notch=FALSE,pt.cex=0.2)
+ 
+ 
+ ##export to cytoscape, hub genes, network visualization    
+ modules = c("paleturquoise");
+ probes = names(datExpr);
+ inModule = is.finite(match(moduleColors, modules));
+ modProbes = probes[inModule];
+ modTOM = TOM[inModule, inModule];
+ cyt = exportNetworkToCytoscape(modTOM,
+                                edgeFile = paste("CytoscapeInput-edges-", paste(modules, collapse="-"), ".txt", sep=""),
+                                nodeFile = paste("CytoscapeInput-nodes-", paste(modules, collapse="-"), ".txt", sep=""),
+                                weighted = TRUE, threshold = 0,
+                                nodeNames = modProbes, nodeAttr = moduleColors[inModule])
+ 
+ cyt = exportNetworkToCytoscape(modTOM,
+                               edgeFile = paste("CytoscapeInput-edges-paleturquoise", paste(modules, collapse="-"), ".txt", sep=""),
+                                nodeFile = paste("CytoscapeInput-nodes-paleturquoise", paste(modules, collapse="-"), ".txt", sep=""),
+                                weighted = TRUE, threshold = 0,
+                                nodeNames = modProbes, nodeAttr = moduleColors[inModule])
+ 
+ 
+rownames(modTOM) <- modProbes
+colnames(modTOM) <- modProbes
+library(dplyr)
+gra<-igraph::graph_from_adjacency_matrix(modTOM, mode = c( "undirected"),weighted = T)
+hub_genes<-hub_score(gra, scale = TRUE)
+write.csv(hub_genes$vector, "paleturquoise-hub-genes.csv")
+pdf("paleturquoise-igraph.pdf")
+gra<-igraph::graph_from_adjacency_matrix(modTOM, mode = c( "undirected"),weighted = T)
+plot(gra)
+dev.off()
+ 
+ 
+##export to cytoscape top 30 
+Data<-read.csv("geneInfo_file.csv")
+colnames(Data)
+inModule=is.finite(match(Data$moduleColor, "paleturquoise"))
+probes=Data$Probe_Id
+modProbes=probes[inModule]
+modGenes=Data$geneSymbol
+modTOM=TOM[inModule,inModule]
+dimnames(modTOM)=list(modProbes, modProbes)
+Data2<-Data[with(Data,order(moduleColor,GS.KO)),]
+module_of_interest<-Data2[Data2$moduleColor=="paleturquoise",]
+modProbe_Ids=module_of_interest$Probe_Id[1:30]
+modGene_Ids=module_of_interest$geneSymbol[1:30]
+modTOM_hubs<-modTOM[row.names(modTOM) %in% modProbe_Ids, colnames(modTOM) %in% modProbe_Ids]
+
+cyt = exportNetworkToCytoscape(modTOM_hubs,
+                               edgeFile = "CytoscapeInput-edges-paleturquoisetop30_hubs.txt", 
+                               nodeFile = "CytoscapeInput-nodes-paleturquoisetop30_hubs.txt",
+                               weighted = TRUE,
+                               threshold = 0, 
+                               nodeNames = modProbe_Ids,
+                               nodeAttr = rep(modules, length(modProbe_Ids)))
+  
