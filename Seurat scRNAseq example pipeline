@@ -1,3 +1,4 @@
+#Cutoffs will be different based on input data, additional metadata columns may be appropriate depending on the analysis. If downstream integration is needed, please consider Seurat v4 versus v5 compatability with downstream packages. 
 library(Seurat)
 library(SeuratObject)
 library(dplyr)
